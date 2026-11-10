@@ -10,13 +10,14 @@
       --card-bg: #1e2025;
       --border: #2e323b;
       --accent: #ff477e;
+      --accent-sub: #7b2cbf;
       --text: #e6e6e6;
       --text-sub: #9aa0a6;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html { scroll-behavior: smooth; }
     body {
-      margin: 0; padding: 16px; padding-bottom: 70px;
+      margin: 0; padding: 16px; padding-bottom: 80px;
       background: var(--bg); color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", Roboto, sans-serif;
       font-size: 15px; line-height: 1.6;
@@ -45,12 +46,12 @@
     }
     .btn-primary { background: var(--accent); color: #fff; }
     .btn-secondary { background: var(--border); color: var(--text); }
+    .btn-continue { background: var(--accent-sub); color: #fff; display: none; }
     .btn:disabled { opacity: 0.5; }
     #outputArea {
       min-height: 160px; white-space: pre-wrap; word-break: break-word;
       font-size: 1rem; line-height: 1.8;
     }
-    /* 맨 위로 가기 플로팅 버튼 */
     .scroll-top-btn {
       position: fixed; bottom: 20px; right: 20px;
       width: 48px; height: 48px; border-radius: 50%;
@@ -59,13 +60,9 @@
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 14px rgba(0,0,0,0.5);
       cursor: pointer; z-index: 90;
-      opacity: 0.9; transition: transform 0.2s, opacity 0.2s;
+      transition: transform 0.2s;
     }
-    .scroll-top-btn:active {
-      transform: scale(0.92);
-      opacity: 1;
-    }
-    /* 설정 모달 */
+    .scroll-top-btn:active { transform: scale(0.92); }
     #settingsModal {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
       padding: 20px; z-index: 100; overflow-y: auto;
@@ -89,35 +86,34 @@
     <button class="icon-btn" onclick="openSettings()">⚙ 설정</button>
   </header>
 
-  <!-- 본문/링크 입력 -->
   <div class="card">
-    <textarea id="inputText" placeholder="일본어 원문 또는 Pixiv 링크를 붙여넣으세요."></textarea>
+    <textarea id="inputText" placeholder="일본어 원문 또는 Pixiv 소설 링크를 붙여넣으세요."></textarea>
     <div class="action-row">
       <button class="btn btn-secondary" onclick="fetchPixivOrPaste()">픽시브 링크 추출</button>
       <button class="btn btn-primary" id="translateBtn" onclick="requestTranslate()">번역하기</button>
     </div>
   </div>
 
-  <!-- 번역 결과 -->
   <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
       <span style="font-size: 0.85rem; color: var(--text-sub);" id="statusLabel">번역 결과</span>
-      <button class="icon-btn" onclick="copyResult()">복사</button>
+      <div style="display: flex; gap: 6px;">
+        <button class="icon-btn" id="continueBtn" style="color: #ff70a6; border-color: #ff70a6; display: none;" onclick="requestContinue()">▶ 이어서 번역</button>
+        <button class="icon-btn" onclick="copyResult()">복사</button>
+      </div>
     </div>
     <div id="outputArea">번역 결과가 여기에 표시됩니다.</div>
   </div>
 
-  <!-- 맨 위로 가기 버튼 -->
   <button class="scroll-top-btn" onclick="scrollToTop()" title="맨 위로">▲</button>
 
-  <!-- 설정 모달 -->
   <div id="settingsModal">
     <div class="modal-content">
-      <h3 style="margin-top:0;">API & 치아미도 룰북 설정</h3>
+      <h3 style="margin-top:0;">API & 번역 설정</h3>
       <div class="field">
         <label>엔진 선택</label>
         <select id="engineSelect" onchange="onEngineChange()">
-          <option value="deepseek">DeepSeek (R-18 최적화 / 기본 권장)</option>
+          <option value="deepseek">DeepSeek (권장 / 최대 8K 토큰)</option>
           <option value="openai">OpenAI (GPT-4o mini)</option>
           <option value="custom">직접 입력 (Custom Base URL)</option>
         </select>
@@ -135,7 +131,7 @@
         <input type="text" id="modelName" value="deepseek-chat">
       </div>
       <div class="field">
-        <label>번역 프롬프트 (치아키 & 미도리 집중)</label>
+        <label>번역 프롬프트</label>
         <textarea id="systemPrompt" style="height: 180px;"></textarea>
       </div>
       <div class="action-row">
@@ -146,25 +142,26 @@
   </div>
 
   <script>
-    // 치아키 & 미도리 최적화 슬림 프롬프트
     const DEFAULT_PROMPT = `# Role
-일본 서브컬처 팬픽 및 R-18 문학 전문 번역가. 
-기계적 직역을 배제하고 단어 간 호응이 자연스러운 한국 웹소설 문체로 번역한다. (예: 덥수룩한 목소리 -> 잠긴/탁한 목소리 등 문맥에 맞는 자연스러운 표현으로 치환)
+일본 서브컬처 팬픽 및 R-18 문학 전문 번역가이자 윤문가.
+직역투를 배제하고 자연스러운 한국 웹소설 문체로 번역한다.
 
-# Characters & Dynamic (앙상블 스타즈 - 유성대)
-1. 모리사와 치아키 (守沢 千秋)
-   - 1인칭: '오레(俺)' / 2인칭: '오마에(お前)' / 미도리 호칭: '타카미네(高峯)'
-   - 말투: 열혈 히어로 톤, 직선적이고 당당한 반말, 큰 목소리와 넘치는 애정(! 다수). 
-   - R-18: 저돌적이고 주도적이면서도 상대를 극진히 아끼고 다정하게 이끄는 톤.
-2. 타카미네 미도리 (高峯 翠)
-   - 1인칭: '보쿠(僕)' / 치아키 호칭: '모리사와 선배(守沢先輩)' 또는 '선배'
-   - 말투: 힘없고 한숨 섞인 비관적 톤("우울해...", "죽고 싶어..."). 선배에게 기본적으로 존댓말(~거든요, ~라니까요 등 툴툴거리는 해요체)이지만 질색하면서도 은근히 마음을 주는 뉘앙스.
-   - R-18: 버거워함, 수줍음, 붉어진 얼굴로 울먹거리거나 쾌감에 흔들리는 섬세한 호흡 묘사.
+# Name & Honorific Rules (앙스타 고유명사 엄수)
+1. 한자 이름 직역 절대 금지:
+   - 등장인물의 성과 이름을 일반 단어로 뜻풀이하지 말고 공식 한국어 독음(카타카나 표기)으로 번역할 것.
+   - 守沢(모리사와), 奏汰(카나타), 忍(시노부), 斑(마다라), 敬人(케이토), 鉄虎(테토라), 真緒(마오)
+2. 호칭 및 접미사 규칙:
+   - ~先輩 -> ~선배 / ~くん -> ~군 / ~さん -> ~상(또는 문맥상 ~씨) / ~ちゃん -> ~쨩
+
+# Characters & Dynamic (유성대)
+1. 모리사와 치아키: 1인칭 '오레', 2인칭 '오마에', 미도리를 '타카미네'로 호칭. 열혈 히어로 톤, 직선적 반말(! 다수).
+2. 타카미네 미도리: 1인칭 '보쿠', 치아키를 '모리사와 선배/선배'로 호칭. 우울·비관적 톤("우울해...", "죽고 싶어..."). 선배에게 툴툴거리는 존댓말(해요체).
+3. 기타 유성대: 카나타('푸카푸카', 둥근 톤), 테토라('~임다', 치아키는 '대장'), 시노부('~고자루/~이오').
 
 # Rules
-- 호칭(~선배, ~상, ~군) 음차 유지.
-- R-18 관능적 감각어, 신음, 체온, 피부 접촉은 검열 없이 농밀하게 번역.
-- 해설이나 사족 없이 번역 본문만 출력.`;
+- 단어 간 어색한 호응 교정 (예: 덥수룩한 목소리 -> 잠긴/낮게 깔린 목소리).
+- R-18 관능적 감각어, 신음, 체온 묘사는 검열 없이 한국 성인 웹소설 문체로 농밀하게 번역.
+- 번역 본문 외 설명이나 사족은 일체 출력하지 않음.`;
 
     window.onload = () => {
       document.getElementById('apiKey').value = localStorage.getItem('es_api_key') || '';
@@ -250,6 +247,7 @@
       }
     }
 
+    // 번역 시작
     async function requestTranslate() {
       let text = document.getElementById('inputText').value.trim();
       const apiKey = localStorage.getItem('es_api_key');
@@ -273,9 +271,13 @@
       }
 
       const btn = document.getElementById('translateBtn');
+      const contBtn = document.getElementById('continueBtn');
       const output = document.getElementById('outputArea');
+      const statusLabel = document.getElementById('statusLabel');
+
       btn.disabled = true;
-      output.innerText = "치아키 & 미도리 룰북을 반영하여 번역하는 중...";
+      contBtn.style.display = 'none';
+      output.innerText = "최대 용량으로 번역하는 중...";
 
       try {
         const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
@@ -291,8 +293,9 @@
             model: model,
             messages: [
               { role: 'system', content: prompt },
-              { role: 'user', content: `다음 일본어 텍스트를 번역하라:\n\n${text}` }
+              { role: 'user', content: `다음 일본어 소설을 한국어로 번역하라:\n\n${text}` }
             ],
+            max_tokens: 8192, // 딥식 최대 출력 토큰(8K) 확장
             temperature: 0.6
           })
         });
@@ -303,11 +306,85 @@
         }
 
         const data = await res.json();
-        output.innerText = data.choices[0].message.content.trim();
+        const choice = data.choices[0];
+        output.innerText = choice.message.content.trim();
+
+        // 토큰 한계(length)로 잘렸는지 자동 감지
+        if (choice.finish_reason === 'length') {
+          contBtn.style.display = 'inline-block';
+          statusLabel.innerText = "⚠️ 분량이 길어 중간에 잘림 (우측 [이어서 번역] 클릭)";
+        } else {
+          statusLabel.innerText = "번역 완료";
+        }
       } catch (err) {
         output.innerText = `[번역 실패]: ${err.message}`;
+        statusLabel.innerText = "오류 발생";
       } finally {
         btn.disabled = false;
+      }
+    }
+
+    // 끊긴 부분부터 뒤이어 번역
+    async function requestContinue() {
+      const text = document.getElementById('inputText').value.trim();
+      const currentOutput = document.getElementById('outputArea').innerText;
+      const apiKey = localStorage.getItem('es_api_key');
+      const baseUrl = localStorage.getItem('es_base_url') || 'https://api.deepseek.com';
+      const model = localStorage.getItem('es_model') || 'deepseek-chat';
+      const prompt = localStorage.getItem('es_prompt') || DEFAULT_PROMPT;
+
+      const contBtn = document.getElementById('continueBtn');
+      const statusLabel = document.getElementById('statusLabel');
+      contBtn.disabled = true;
+      statusLabel.innerText = "끊긴 뒷부분을 이어서 번역 중...";
+
+      // 마지막 150자를 기준으로 이어쓰기 요청
+      const lastContext = currentOutput.slice(-150);
+
+      try {
+        const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+        const url = `${cleanBaseUrl}/chat/completions`;
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: `다음 원문에서 아직 번역되지 않은 뒷부분을 이어서 번역하라.\n직전에 번역된 마지막 문장은 다음과 같다:\n"...${lastContext}"\n\n이 문장의 바로 뒤부터 자연스럽게 이어지도록 번역 본문만 출력하라:\n\n[전체 원문]:\n${text}` }
+            ],
+            max_tokens: 8192,
+            temperature: 0.6
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error?.message || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const choice = data.choices[0];
+        
+        // 기존 텍스트 뒤에 자연스럽게 덧붙임
+        document.getElementById('outputArea').innerText = currentOutput + "\n\n" + choice.message.content.trim();
+
+        if (choice.finish_reason === 'length') {
+          contBtn.style.display = 'inline-block';
+          statusLabel.innerText = "⚠️ 여전히 분량이 남아있음 (한 번 더 [이어서 번역] 클릭)";
+        } else {
+          contBtn.style.display = 'none';
+          statusLabel.innerText = "전체 이어 번역 완료";
+        }
+      } catch (err) {
+        alert("이어 번역 실패: " + err.message);
+        statusLabel.innerText = "이어 번역 실패";
+      } finally {
+        contBtn.disabled = false;
       }
     }
   </script>
