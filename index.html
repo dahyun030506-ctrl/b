@@ -14,8 +14,9 @@
       --text-sub: #9aa0a6;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { scroll-behavior: smooth; }
     body {
-      margin: 0; padding: 16px;
+      margin: 0; padding: 16px; padding-bottom: 70px;
       background: var(--bg); color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", Roboto, sans-serif;
       font-size: 15px; line-height: 1.6;
@@ -49,6 +50,22 @@
       min-height: 160px; white-space: pre-wrap; word-break: break-word;
       font-size: 1rem; line-height: 1.8;
     }
+    /* 맨 위로 가기 플로팅 버튼 */
+    .scroll-top-btn {
+      position: fixed; bottom: 20px; right: 20px;
+      width: 48px; height: 48px; border-radius: 50%;
+      background: var(--accent); color: #ffffff;
+      border: none; font-size: 1.2rem; font-weight: bold;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+      cursor: pointer; z-index: 90;
+      opacity: 0.9; transition: transform 0.2s, opacity 0.2s;
+    }
+    .scroll-top-btn:active {
+      transform: scale(0.92);
+      opacity: 1;
+    }
+    /* 설정 모달 */
     #settingsModal {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
       padding: 20px; z-index: 100; overflow-y: auto;
@@ -67,21 +84,21 @@
 </head>
 <body>
 
-  <header>
+  <header id="top">
     <h1>★ Ensemble Translator</h1>
     <button class="icon-btn" onclick="openSettings()">⚙ 설정</button>
   </header>
 
-  <!-- 입력 카드 -->
+  <!-- 본문/링크 입력 -->
   <div class="card">
-    <textarea id="inputText" placeholder="일본어 원문 또는 Pixiv 소설 링크(https://www.pixiv.net/novel/show.php?id=...)를 붙여넣으세요."></textarea>
+    <textarea id="inputText" placeholder="일본어 원문 또는 Pixiv 링크를 붙여넣으세요."></textarea>
     <div class="action-row">
       <button class="btn btn-secondary" onclick="fetchPixivOrPaste()">픽시브 링크 추출</button>
       <button class="btn btn-primary" id="translateBtn" onclick="requestTranslate()">번역하기</button>
     </div>
   </div>
 
-  <!-- 번역 결과 카드 -->
+  <!-- 번역 결과 -->
   <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
       <span style="font-size: 0.85rem; color: var(--text-sub);" id="statusLabel">번역 결과</span>
@@ -90,10 +107,13 @@
     <div id="outputArea">번역 결과가 여기에 표시됩니다.</div>
   </div>
 
+  <!-- 맨 위로 가기 버튼 -->
+  <button class="scroll-top-btn" onclick="scrollToTop()" title="맨 위로">▲</button>
+
   <!-- 설정 모달 -->
   <div id="settingsModal">
     <div class="modal-content">
-      <h3 style="margin-top:0;">API & 캐릭터 룰북 설정</h3>
+      <h3 style="margin-top:0;">API & 치아미도 룰북 설정</h3>
       <div class="field">
         <label>엔진 선택</label>
         <select id="engineSelect" onchange="onEngineChange()">
@@ -115,7 +135,7 @@
         <input type="text" id="modelName" value="deepseek-chat">
       </div>
       <div class="field">
-        <label>앙스타 룰북 & 번역 프롬프트</label>
+        <label>번역 프롬프트 (치아키 & 미도리 집중)</label>
         <textarea id="systemPrompt" style="height: 180px;"></textarea>
       </div>
       <div class="action-row">
@@ -126,31 +146,25 @@
   </div>
 
   <script>
+    // 치아키 & 미도리 최적화 슬림 프롬프트
     const DEFAULT_PROMPT = `# Role
-너는 일본 서브컬처 팬픽션 및 R-18 문학 전문 번역가다.
-앙상블 스타즈(Ensemble Stars) 원작의 인물 관계성, 말투(어조), 1인칭, 호칭을 철저하게 재현한다.
+일본 서브컬처 팬픽 및 R-18 문학 전문 번역가. 
+기계적 직역을 배제하고 단어 간 호응이 자연스러운 한국 웹소설 문체로 번역한다. (예: 덥수룩한 목소리 -> 잠긴/탁한 목소리 등 문맥에 맞는 자연스러운 표현으로 치환)
 
-# Ensemble Stars Character Tone & Naming Rules
-1. Crazy:B
-   - 아마기 린네: 1인칭 '오레(俺)'. 거칠고 능글맞은 톤, 웃음소리 "갸하하(ぎゃはは)".
-     히메루를 '메루메루(めるめる)', 타츠미를 '온짱(おんちゃん)', 니키를 '니키/니키큥'으로 호칭.
-   - HiMERU: 1인칭으로 자기 이름인 'HiMERU'를 고유명사로 칭함 ("HiMERU는 ~라고 생각합니다만").
-     정중하지만 거리감 있고 냉철한 사무적 존댓말 구사. 린네는 '린네/아마기', 타츠미는 '타츠미 씨'.
-   - 시이나 니키: 1인칭 '보쿠(僕)'. 배고픔 불평, 칭얼거리면서도 요리사다운 톤. 린네는 '린네 군/형님'.
-2. ALKALOID
-   - 카제하야 타츠미: 1인칭 '와타시(私)'. 성직자다운 온화하고 정중한 존댓말. 상대를 '~씨(さん)'로 존칭.
-   - 아마기 히이로: 1인칭 '보쿠(僕)' 또는 '오레'. 순박하고 곧은 반말/존댓말 혼용. 린네는 '형(兄さん)'.
-3. 流星隊 (유성대)
-   - 모리사와 치아키: 열혈 히어로 톤, 큰 목소리(! 다수). 후배들을 살뜰히 챙김. 미도리는 '타카미네'.
-   - 타카미네 미도리: 무기력하고 우울한 톤 ("우울해...", "죽고 싶어..."). 선배들에게 존댓말이지만 툴툴거림.
-4. UNDEAD
-   - 오토가리 아도니스: 차분하고 우직함. "고기를 먹어라", "작고 약한 생물을 지킨다". 단문 위주.
-   - 사쿠마 레이: 고풍스러운 노인체 ("와가하이(이 몸)", "아가/꼬마(坊や)"). 여유롭고 능청스러움.
+# Characters & Dynamic (앙상블 스타즈 - 유성대)
+1. 모리사와 치아키 (守沢 千秋)
+   - 1인칭: '오레(俺)' / 2인칭: '오마에(お前)' / 미도리 호칭: '타카미네(高峯)'
+   - 말투: 열혈 히어로 톤, 직선적이고 당당한 반말, 큰 목소리와 넘치는 애정(! 다수). 
+   - R-18: 저돌적이고 주도적이면서도 상대를 극진히 아끼고 다정하게 이끄는 톤.
+2. 타카미네 미도리 (高峯 翠)
+   - 1인칭: '보쿠(僕)' / 치아키 호칭: '모리사와 선배(守沢先輩)' 또는 '선배'
+   - 말투: 힘없고 한숨 섞인 비관적 톤("우울해...", "죽고 싶어..."). 선배에게 기본적으로 존댓말(~거든요, ~라니까요 등 툴툴거리는 해요체)이지만 질색하면서도 은근히 마음을 주는 뉘앙스.
+   - R-18: 버거워함, 수줍음, 붉어진 얼굴로 울먹거리거나 쾌감에 흔들리는 섬세한 호흡 묘사.
 
-# General & R-18 Rules
-- 일본 서브컬처 호칭(~군, ~상, ~선배, ~쨩)은 음차를 유지한다.
-- R-18 성인 묘사, 의성어/의태어, 관능적 감각 표현은 축소나 완곡화 없이 한국 성인 웹소설에 걸맞게 원문 뉘앙스를 살려 번역한다.
-- 번역 본문 외의 불필요한 서두나 사족은 절대 출력하지 않는다.`;
+# Rules
+- 호칭(~선배, ~상, ~군) 음차 유지.
+- R-18 관능적 감각어, 신음, 체온, 피부 접촉은 검열 없이 농밀하게 번역.
+- 해설이나 사족 없이 번역 본문만 출력.`;
 
     window.onload = () => {
       document.getElementById('apiKey').value = localStorage.getItem('es_api_key') || '';
@@ -188,11 +202,12 @@
       navigator.clipboard.writeText(result).then(() => alert("복사되었습니다."));
     }
 
-    // 픽시브 링크 자동 감지 및 본문 추출 함수
+    function scrollToTop() {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     async function fetchPixivOrPaste() {
       let text = document.getElementById('inputText').value.trim();
-      
-      // 입력창이 비어있으면 클립보드에서 자동 가져오기 시도
       if (!text) {
         try {
           text = await navigator.clipboard.readText();
@@ -202,7 +217,7 @@
 
       const match = text.match(/(?:novel\/show\.php\?id=|\/novel\/)(\d+)/);
       if (!match) {
-        alert("입력창에 올바른 Pixiv 소설 링크를 입력해주세요.\n(예: https://www.pixiv.net/novel/show.php?id=12345678)");
+        alert("입력창에 올바른 Pixiv 소설 링크를 입력해주세요.");
         return;
       }
 
@@ -211,7 +226,6 @@
       statusLabel.innerText = "픽시브 본문 다운로드 중...";
 
       try {
-        // CORS 프록시를 통해 Pixiv Ajax API 호출
         const targetUrl = `https://www.pixiv.net/ajax/novel/${novelId}`;
         const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
         
@@ -219,25 +233,23 @@
         const data = await res.json();
 
         if (data.error) {
-          throw new Error("R-18(성인인증 필요) 또는 비공개 작품입니다. 픽시브 사이트에서 본문을 직접 복사해 붙여넣어 주세요.");
+          throw new Error("R-18 또는 비공개 작품입니다. 픽시브에서 본문을 직접 복사해 붙여넣어 주세요.");
         }
 
         let content = data.body?.content || "";
-        // 픽시브 전용 태그 정리 ([newpage], 루비 태그 등)
         content = content.replace(/\[newpage\]/g, "\n\n--- [페이지 구분] ---\n\n")
                          .replace(/\[\[rb:(.*?)>(.*?)\]\]/g, "$1($2)")
                          .replace(/\[chapter:(.*?)\]/g, "\n[챕터: $1]\n");
 
         document.getElementById('inputText').value = content;
         statusLabel.innerText = `본문 추출 완료 (${data.body.title || '무제'})`;
-        alert("본문을 성공적으로 가져왔습니다. 바로 [번역하기]를 누르세요.");
+        alert("본문을 성공적으로 가져왔습니다.");
       } catch (err) {
         alert(err.message);
         statusLabel.innerText = "본문 추출 실패";
       }
     }
 
-    // 번역 실행
     async function requestTranslate() {
       let text = document.getElementById('inputText').value.trim();
       const apiKey = localStorage.getItem('es_api_key');
@@ -251,11 +263,10 @@
         return;
       }
       if (!text) {
-        alert("번역할 텍스트나 링크를 입력해주세요.");
+        alert("번역할 텍스트를 입력해주세요.");
         return;
       }
 
-      // 혹시 주소 상태로 번역 버튼을 눌렀다면 먼저 추출 유도
       if (text.includes("pixiv.net/novel/")) {
         await fetchPixivOrPaste();
         text = document.getElementById('inputText').value.trim();
@@ -264,7 +275,7 @@
       const btn = document.getElementById('translateBtn');
       const output = document.getElementById('outputArea');
       btn.disabled = true;
-      output.innerText = "앙스타 룰북을 반영하여 번역하는 중...";
+      output.innerText = "치아키 & 미도리 룰북을 반영하여 번역하는 중...";
 
       try {
         const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
