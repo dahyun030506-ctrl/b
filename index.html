@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>앙스타 팬픽 번역기</title>
+  <style>
+    :root {
+      --bg: #121316;
+      --card-bg: #1e2025;
+      --border: #2e323b;
+      --accent: #ff477e;
+      --text: #e6e6e6;
+      --text-sub: #9aa0a6;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0; padding: 16px;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", Roboto, sans-serif;
+      font-size: 15px; line-height: 1.6;
+    }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 14px;
+    }
+    h1 { font-size: 1.15rem; margin: 0; font-weight: 700; color: #fff; }
+    .icon-btn {
+      background: none; border: 1px solid var(--border); color: var(--text);
+      padding: 6px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer;
+    }
+    .card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px; margin-bottom: 12px;
+    }
+    textarea {
+      width: 100%; height: 130px; background: transparent; border: none;
+      color: var(--text); font-size: 0.95rem; line-height: 1.5; resize: vertical; outline: none;
+    }
+    .action-row { display: flex; gap: 8px; margin-top: 8px; }
+    .btn {
+      flex: 1; padding: 12px; border-radius: 8px; border: none;
+      font-weight: 600; font-size: 0.95rem; cursor: pointer;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-secondary { background: var(--border); color: var(--text); }
+    .btn:disabled { opacity: 0.5; }
+    #outputArea {
+      min-height: 160px; white-space: pre-wrap; word-break: break-word;
+      font-size: 1rem; line-height: 1.8;
+    }
+    /* 설정 모달 */
+    #settingsModal {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      padding: 20px; z-index: 100; overflow-y: auto;
+    }
+    .modal-content {
+      background: var(--card-bg); border-radius: 14px; padding: 18px; max-width: 480px; margin: 40px auto;
+      border: 1px solid var(--border);
+    }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 0.85rem; color: var(--text-sub); margin-bottom: 6px; }
+    .field input, .field select, .field textarea {
+      width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>★ Ensemble Translator</h1>
+    <button class="icon-btn" onclick="openSettings()">⚙ 설정</button>
+  </header>
+
+  <!-- 원문 입력창 -->
+  <div class="card">
+    <textarea id="inputText" placeholder="일본어 원문 또는 R-18 소설 텍스트를 붙여넣으세요..."></textarea>
+    <div class="action-row">
+      <button class="btn btn-secondary" onclick="pasteClipboard()">클립보드 붙여넣기</button>
+      <button class="btn btn-primary" id="translateBtn" onclick="requestTranslate()">번역하기</button>
+    </div>
+  </div>
+
+  <!-- 번역 결과창 -->
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <span style="font-size: 0.85rem; color: var(--text-sub);">번역 결과</span>
+      <button class="icon-btn" onclick="copyResult()">복사</button>
+    </div>
+    <div id="outputArea">번역 결과가 여기에 표시됩니다.</div>
+  </div>
+
+  <!-- 설정 모달 -->
+  <div id="settingsModal">
+    <div class="modal-content">
+      <h3 style="margin-top:0;">API & 캐릭터 룰북 설정</h3>
+      <div class="field">
+        <label>엔진 선택</label>
+        <select id="engineSelect" onchange="onEngineChange()">
+          <option value="deepseek">DeepSeek (R-18 최적화 / 검열 없음 / 초저렴)</option>
+          <option value="openai">OpenAI (GPT-4o mini)</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="custom">직접 입력 (Custom Base URL)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-...">
+      </div>
+      <div class="field">
+        <label>Base URL</label>
+        <input type="text" id="baseUrl" value="https://api.deepseek.com">
+      </div>
+      <div class="field">
+        <label>Model 명</label>
+        <input type="text" id="modelName" value="deepseek-chat">
+      </div>
+      <div class="field">
+        <label>앙스타 룰북 & 번역 프롬프트</label>
+        <textarea id="systemPrompt" style="height: 180px;"></textarea>
+      </div>
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="saveSettings()">저장 완료</button>
+        <button class="btn btn-secondary" onclick="closeSettings()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 앙상블 스타즈 특화 디폴트 프롬프트
+    const DEFAULT_PROMPT = `# Role
+너는 일본 서브컬처 팬픽션 및 R-18 문학 전문 번역가다.
+앙상블 스타즈(Ensemble Stars) 원작의 인물 관계성, 말투(어조), 1인칭, 호칭을 철저하게 재현한다.
+
+# Ensemble Stars Character Tone & Naming Rules
+1. Crazy:B
+   - 아마기 린네: 1인칭 '오레(俺)'. 거칠고 능글맞은 톤, 웃음소리 "갸하하(ぎゃはは)".
+     히메루를 '메루메루(めるめる)', 타츠미를 '온짱(おんちゃん)', 니키를 '니키/니키큥'으로 호칭.
+   - HiMERU: 1인칭으로 자기 이름인 'HiMERU'를 고유명사로 칭함 ("HiMERU는 ~라고 생각합니다만").
+     정중하지만 거리감 있고 냉철한 사무적 존댓말 구사. 린네는 '린네/아마기', 타츠미는 '타츠미 씨'.
+   - 시이나 니키: 1인칭 '보쿠(僕)'. 배고픔 불평, 칭얼거리면서도 요리사다운 톤. 린네는 '린네 군/형님'.
+2. ALKALOID
+   - 카제하야 타츠미: 1인칭 '와타시(私)'. 성직자다운 온화하고 정중한 존댓말. 상대를 '~씨(さん)'로 존칭.
+   - 아마기 히이로: 1인칭 '보쿠(僕)' 또는 '오레'. 시골 출신의 순박하고 곧은 반말/존댓말 혼용. 린네는 '형(兄さん)'.
+3. 流星隊 (유성대)
+   - 모리사와 치아키: 열혈 히어로 톤, 큰 목소리(! 다수). 후배들을 살뜰히 챙김. 미도리는 '타카미네'.
+   - 타카미네 미도리: 무기력하고 우울한 톤 ("우울해...", "죽고 싶어..."). 선배들에게 존댓말이지만 툴툴거림.
+4. UNDEAD
+   - 오토가리 아도니스: 차분하고 우직함. "고기를 먹어라", "작고 약한 생물을 지킨다". 단문 위주.
+   - 사쿠마 레이: 고풍스러운 노인체 ("와가하이(이 몸)", "아가/꼬마(坊や)"). 여유롭고 능청스러움.
+
+# General & R-18 Rules
+- 일본 서브컬처 호칭(~군, ~상, ~선배, ~쨩)은 음차를 유지한다.
+- R-18 성인 묘사, 의성어/의태어, 관능적 감각 표현은 축소나 완곡화 없이 한국 성인 웹소설에 걸맞게 원문 뉘앙스를 살려 번역한다.
+- 번역 본문 외의 불필요한 서두나 사족은 절대 출력하지 않는다.`;
+
+    // 초기 로딩
+    window.onload = () => {
+      document.getElementById('apiKey').value = localStorage.getItem('es_api_key') || '';
+      document.getElementById('baseUrl').value = localStorage.getItem('es_base_url') || 'https://api.deepseek.com';
+      document.getElementById('modelName').value = localStorage.getItem('es_model') || 'deepseek-chat';
+      document.getElementById('systemPrompt').value = localStorage.getItem('es_prompt') || DEFAULT_PROMPT;
+      document.getElementById('engineSelect').value = localStorage.getItem('es_engine') || 'deepseek';
+    };
+
+    function onEngineChange() {
+      const engine = document.getElementById('engineSelect').value;
+      if (engine === 'deepseek') {
+        document.getElementById('baseUrl').value = 'https://api.deepseek.com';
+        document.getElementById('modelName').value = 'deepseek-chat';
+      } else if (engine === 'openai') {
+        document.getElementById('baseUrl').value = 'https://api.openai.com/v1';
+        document.getElementById('modelName').value = 'gpt-4o-mini';
+      } else if (engine === 'openrouter') {
+        document.getElementById('baseUrl').value = 'https://openrouter.ai/api/v1';
+        document.getElementById('modelName').value = 'deepseek/deepseek-chat';
+      }
+    }
+
+    function openSettings() { document.getElementById('settingsModal').style.display = 'block'; }
+    function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
+    
+    function saveSettings() {
+      localStorage.setItem('es_api_key', document.getElementById('apiKey').value.trim());
+      localStorage.setItem('es_base_url', document.getElementById('baseUrl').value.trim());
+      localStorage.setItem('es_model', document.getElementById('modelName').value.trim());
+      localStorage.setItem('es_prompt', document.getElementById('systemPrompt').value.trim());
+      localStorage.setItem('es_engine', document.getElementById('engineSelect').value);
+      closeSettings();
+    }
+
+    async function pasteClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        document.getElementById('inputText').value = text;
+      } catch (err) {
+        alert("클립보드 접근 권한을 허용해주세요.");
+      }
+    }
+
+    function copyResult() {
+      const result = document.getElementById('outputArea').innerText;
+      navigator.clipboard.writeText(result).then(() => alert("복사되었습니다."));
+    }
+
+    async function requestTranslate() {
+      const text = document.getElementById('inputText').value.trim();
+      const apiKey = localStorage.getItem('es_api_key');
+      const baseUrl = localStorage.getItem('es_base_url') || 'https://api.deepseek.com';
+      const model = localStorage.getItem('es_model') || 'deepseek-chat';
+      const prompt = localStorage.getItem('es_prompt') || DEFAULT_PROMPT;
+
+      if (!apiKey) {
+        alert("우측 상단 ⚙ 설정에서 API Key를 먼저 입력해주세요.");
+        openSettings();
+        return;
+      }
+      if (!text) {
+        alert("번역할 텍스트를 입력해주세요.");
+        return;
+      }
+
+      const btn = document.getElementById('translateBtn');
+      const output = document.getElementById('outputArea');
+      btn.disabled = true;
+      output.innerText = "앙스타 룰북을 반영하여 번역하는 중...";
+
+      try {
+        const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: `다음 일본어 텍스트를 번역하라:\n\n${text}` }
+            ],
+            temperature: 0.6
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error?.message || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        output.innerText = data.choices[0].message.content.trim();
+      } catch (err) {
+        output.innerText = `[번역 실패]: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
